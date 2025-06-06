@@ -271,8 +271,12 @@ func (p *Param) astGetParamType(param *ast.Field) {
 	case *ast.StarExpr:
 		p.IsPointer = true
 		p.astGetEltType(v.X)
+	case *ast.IndexExpr:
+		p.astGetEltType(v.X)
+	case *ast.IndexListExpr:
+		p.astGetEltType(v.X)
 	default:
-		log.Fatalf("unknow param type: %+v", v)
+		log.Printf("Unsupported param type: %+v", v)
 	}
 }
 
@@ -293,8 +297,13 @@ func (p *Param) astGetEltType(expr ast.Expr) {
 		p.astGetEltType(v.X)
 	case *ast.InterfaceType:
 		p.Type = "interface{}"
+	case *ast.ArrayType:
+		p.astGetEltType(v.Elt)
+		p.Type = "[]" + p.Type
+	case *ast.IndexExpr:
+		p.astGetEltType(v.X)
 	default:
-		log.Fatalf("unknow param type: %+v", v)
+		log.Printf("Unsupported param type: %+v", v)
 	}
 }
 

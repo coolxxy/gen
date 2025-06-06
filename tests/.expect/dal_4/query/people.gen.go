@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -128,6 +129,8 @@ func (p person) TableName() string { return p.personDo.TableName() }
 
 func (p person) Alias() string { return p.personDo.Alias() }
 
+func (p person) Columns(cols ...field.Expr) gen.Columns { return p.personDo.Columns(cols...) }
+
 func (p *person) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := p.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -229,6 +232,8 @@ type IPersonDo interface {
 	FirstOrCreate() (*model.Person, error)
 	FindByPage(offset int, limit int) (result []*model.Person, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) IPersonDo
 	UnderlyingDB() *gorm.DB
@@ -277,10 +282,6 @@ func (p personDo) Select(conds ...field.Expr) IPersonDo {
 
 func (p personDo) Where(conds ...gen.Condition) IPersonDo {
 	return p.withDO(p.DO.Where(conds...))
-}
-
-func (p personDo) Exists(subquery interface{ UnderlyingDB() *gorm.DB }) IPersonDo {
-	return p.Where(field.CompareSubQuery(field.ExistsOp, nil, subquery.UnderlyingDB()))
 }
 
 func (p personDo) Order(conds ...field.Expr) IPersonDo {

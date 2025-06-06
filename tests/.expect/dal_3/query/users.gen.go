@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -93,6 +94,8 @@ func (u *user) WithContext(ctx context.Context) IUserDo { return u.userDo.WithCo
 func (u user) TableName() string { return u.userDo.TableName() }
 
 func (u user) Alias() string { return u.userDo.Alias() }
+
+func (u user) Columns(cols ...field.Expr) gen.Columns { return u.userDo.Columns(cols...) }
 
 func (u *user) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := u.fieldMap[fieldName]
@@ -182,6 +185,8 @@ type IUserDo interface {
 	FirstOrCreate() (*model.User, error)
 	FindByPage(offset int, limit int) (result []*model.User, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) IUserDo
 	UnderlyingDB() *gorm.DB
@@ -230,10 +235,6 @@ func (u userDo) Select(conds ...field.Expr) IUserDo {
 
 func (u userDo) Where(conds ...gen.Condition) IUserDo {
 	return u.withDO(u.DO.Where(conds...))
-}
-
-func (u userDo) Exists(subquery interface{ UnderlyingDB() *gorm.DB }) IUserDo {
-	return u.Where(field.CompareSubQuery(field.ExistsOp, nil, subquery.UnderlyingDB()))
 }
 
 func (u userDo) Order(conds ...field.Expr) IUserDo {

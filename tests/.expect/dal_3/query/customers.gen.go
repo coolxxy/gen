@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -79,6 +80,8 @@ func (c *customer) WithContext(ctx context.Context) ICustomerDo { return c.custo
 func (c customer) TableName() string { return c.customerDo.TableName() }
 
 func (c customer) Alias() string { return c.customerDo.Alias() }
+
+func (c customer) Columns(cols ...field.Expr) gen.Columns { return c.customerDo.Columns(cols...) }
 
 func (c *customer) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := c.fieldMap[fieldName]
@@ -165,6 +168,8 @@ type ICustomerDo interface {
 	FirstOrCreate() (*model.Customer, error)
 	FindByPage(offset int, limit int) (result []*model.Customer, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) ICustomerDo
 	UnderlyingDB() *gorm.DB
@@ -213,10 +218,6 @@ func (c customerDo) Select(conds ...field.Expr) ICustomerDo {
 
 func (c customerDo) Where(conds ...gen.Condition) ICustomerDo {
 	return c.withDO(c.DO.Where(conds...))
-}
-
-func (c customerDo) Exists(subquery interface{ UnderlyingDB() *gorm.DB }) ICustomerDo {
-	return c.Where(field.CompareSubQuery(field.ExistsOp, nil, subquery.UnderlyingDB()))
 }
 
 func (c customerDo) Order(conds ...field.Expr) ICustomerDo {

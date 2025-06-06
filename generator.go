@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -48,8 +47,6 @@ type RowsAffected int64
 
 var concurrent = runtime.NumCPU()
 
-func init() { runtime.GOMAXPROCS(runtime.NumCPU()) }
-
 // NewGenerator create a new generator
 func NewGenerator(cfg Config) *Generator {
 	if err := cfg.Revise(); err != nil {
@@ -60,6 +57,8 @@ func NewGenerator(cfg Config) *Generator {
 		Config: cfg,
 		Data:   make(map[string]*genInfo),
 		models: make(map[string]*generate.QueryStructMeta),
+
+		logger: log.Default(),
 	}
 }
 
@@ -87,12 +86,23 @@ func (i *genInfo) methodInGenInfo(m *generate.InterfaceMethod) bool {
 	return false
 }
 
+// Logger  gen logger interface
+type Logger interface {
+	Println(v ...any)
+}
+
 // Generator code generator
 type Generator struct {
 	Config
-
 	Data   map[string]*genInfo                  //gen query data
 	models map[string]*generate.QueryStructMeta //gen model data
+
+	logger Logger
+}
+
+// SetLogger  set gen logger
+func (g *Generator) SetLogger(logger Logger) {
+	g.logger = logger
 }
 
 // UseDB set db connection
@@ -186,7 +196,6 @@ func (g *Generator) genModelConfig(tableName string, modelName string, modelOpts
 			FieldWithTypeTag:  g.FieldWithTypeTag,
 
 			FieldJSONTagNS: g.fieldJSONTagNS,
-			FieldNewTagNS:  g.fieldNewTagNS,
 		},
 	}
 }
@@ -282,7 +291,7 @@ func (g *Generator) Execute() {
 func (g *Generator) info(logInfos ...string) {
 	for _, l := range logInfos {
 		g.db.Logger.Info(context.Background(), l)
-		log.Println(l)
+		g.logger.Println(l)
 	}
 }
 
@@ -392,7 +401,7 @@ func (g *Generator) generateSingleQueryFile(data *genInfo) (err error) {
 	}
 	err = render(tmpl.Header, &buf, map[string]interface{}{
 		"Package":        g.queryPkgName,
-		"ImportPkgPaths": importList.Add(structPkgPath).Add(getImportPkgPaths(data)...).Paths(),
+		"ImportPkgPaths": importList.Add(g.importPkgPaths...).Add(structPkgPath).Add(getImportPkgPaths(data)...).Paths(),
 	})
 	if err != nil {
 		return err
@@ -428,8 +437,8 @@ func (g *Generator) generateSingleQueryFile(data *genInfo) (err error) {
 		return err
 	}
 
-	defer g.info(fmt.Sprintf("generate query file: %s/%s.gen.go", g.OutPath, data.FileName))
-	return g.output(fmt.Sprintf("%s/%s.gen.go", g.OutPath, data.FileName), buf.Bytes())
+	defer g.info(fmt.Sprintf("generate query file: %s%s%s.gen.go", g.OutPath, string(os.PathSeparator), data.FileName))
+	return g.output(fmt.Sprintf("%s%s%s.gen.go", g.OutPath, string(os.PathSeparator), data.FileName), buf.Bytes())
 }
 
 // generateQueryUnitTestFile generate unit test file for query
@@ -460,8 +469,8 @@ func (g *Generator) generateQueryUnitTestFile(data *genInfo) (err error) {
 		}
 	}
 
-	defer g.info(fmt.Sprintf("generate unit test file: %s/%s.gen_test.go", g.OutPath, data.FileName))
-	return g.output(fmt.Sprintf("%s/%s.gen_test.go", g.OutPath, data.FileName), buf.Bytes())
+	defer g.info(fmt.Sprintf("generate unit test file: %s%s%s.gen_test.go", g.OutPath, string(os.PathSeparator), data.FileName))
+	return g.output(fmt.Sprintf("%s%s%s.gen_test.go", g.OutPath, string(os.PathSeparator), data.FileName), buf.Bytes())
 }
 
 // generateModelFile generate model structures and save to file
@@ -570,7 +579,7 @@ func (g *Generator) output(fileName string, content []byte) error {
 		}
 		return fmt.Errorf("cannot format file: %w", err)
 	}
-	return ioutil.WriteFile(fileName, result, 0640)
+	return os.WriteFile(fileName, result, 0640)
 }
 
 func (g *Generator) pushQueryStructMeta(meta *generate.QueryStructMeta) (*genInfo, error) {

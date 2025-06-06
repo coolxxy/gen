@@ -42,6 +42,7 @@ func GetQueryStructMeta(db *gorm.DB, conf *model.Config) (*QueryStructMeta, erro
 		Generated:       true,
 		FileName:        fileName,
 		TableName:       tableName,
+		TableComment:    getTableComment(db, tableName),
 		ModelStructName: structName,
 		QueryStructName: uncaptialize(structName),
 		S:               strings.ToLower(structName[0:1]),
@@ -84,16 +85,25 @@ func GetQueryStructMetaFromObject(obj helper.Object, conf *model.Config) (*Query
 	}
 
 	fields := make([]*model.Field, 0, 16)
-	for _, field := range obj.Fields() {
+	for _, fl := range obj.Fields() {
+		tag := fl.Tag()
+		if tag == nil {
+			tag = field.Tag{}
+		}
+		if gt := fl.GORMTag(); gt != "" {
+			tag.Set(field.TagKeyGorm, gt)
+		}
+		if jt := fl.JSONTag(); jt != "" {
+			tag.Set(field.TagKeyJson, jt)
+		}
+
 		fields = append(fields, &model.Field{
-			Name:             field.Name(),
-			Type:             field.Type(),
-			ColumnName:       field.ColumnName(),
-			GORMTag:          field.GORMTag(),
-			JSONTag:          field.JSONTag(),
-			NewTag:           field.Tag(),
-			ColumnComment:    field.Comment(),
-			MultilineComment: strings.Contains(field.Comment(), "\n"),
+			Name:             fl.Name(),
+			Type:             fl.Type(),
+			ColumnName:       fl.ColumnName(),
+			Tag:              tag,
+			ColumnComment:    fl.Comment(),
+			MultilineComment: strings.Contains(fl.Comment(), "\n"),
 		})
 	}
 
@@ -207,7 +217,7 @@ func BuildDIYMethod(f *parser.InterfaceSet, s *QueryStructMeta, data []*Interfac
 // ParseStructRelationShip parse struct's relationship
 // No one should use it directly in project
 func ParseStructRelationShip(relationship *schema.Relationships) []field.Relation {
-	cache := make(map[string]bool)
+	cache := make(map[string][]field.Relation)
 	return append(append(append(append(
 		make([]field.Relation, 0, 4),
 		pullRelationShip(cache, relationship.HasOne)...),

@@ -1,6 +1,8 @@
 package field
 
 import (
+	"fmt"
+
 	"gorm.io/gorm/clause"
 )
 
@@ -72,8 +74,8 @@ func (field String) Regexp(value string) Expr {
 	return field.regexp(value)
 }
 
-// NotRegxp ...
-func (field String) NotRegxp(value string) Expr {
+// NotRegexp ...
+func (field String) NotRegexp(value string) Expr {
 	return expr{e: clause.Not(field.Regexp(value).expression())}
 }
 
@@ -119,6 +121,65 @@ func (field String) Concat(before, after string) String {
 	default:
 		return field
 	}
+}
+
+// Lower converts a string to lower-case.
+func (field String) Lower() String {
+	return String{expr{e: clause.Expr{SQL: "LOWER(?)", Vars: []interface{}{field.RawExpr()}}}}
+}
+
+// Upper converts a string to upper-case.
+func (field String) Upper() String {
+	return String{expr{e: clause.Expr{SQL: "UPPER(?)", Vars: []interface{}{field.RawExpr()}}}}
+}
+
+// Field ...
+func (field String) Field(values ...string) String {
+	return String{field.field(values)}
+}
+
+// SubstringIndex SUBSTRING_INDEX
+// https://dev.mysql.com/doc/refman/8.0/en/functions.html#function_substring-index
+func (field String) SubstringIndex(delim string, count int) String {
+	return String{expr{e: clause.Expr{
+		SQL:  fmt.Sprintf("SUBSTRING_INDEX(?,%q,%d)", delim, count),
+		Vars: []interface{}{field.RawExpr()},
+	}}}
+}
+
+// Substring https://dev.mysql.com/doc/refman/8.4/en/string-functions.html#function_substring
+func (field String) Substring(params ...int) String {
+	if len(params) == 0 {
+		return field
+	}
+	if len(params) == 1 {
+		return String{expr{e: clause.Expr{
+			SQL:  fmt.Sprintf("SUBSTRING(?,%d)", params[0]),
+			Vars: []interface{}{field.RawExpr()},
+		}}}
+	}
+	return String{expr{e: clause.Expr{
+		SQL:  fmt.Sprintf("SUBSTRING(?,%d,%d)", params[0], params[1]),
+		Vars: []interface{}{field.RawExpr()},
+	}}}
+}
+
+// Substr SUBSTR is a synonym for SUBSTRING 
+// https://dev.mysql.com/doc/refman/8.4/en/string-functions.html#function_substring
+func (field String) Substr(params ...int) String {
+	if len(params) == 0 {
+		return field
+	}
+	if len(params) == 1 {
+		return String{expr{e: clause.Expr{
+			SQL:  fmt.Sprintf("SUBSTR(?,%d)", params[0]),
+			Vars: []interface{}{field.RawExpr()},
+		}}}
+	}
+	return String{expr{e: clause.Expr{
+		SQL:  fmt.Sprintf("SUBSTR(?,%d,%d)", params[0], params[1]),
+		Vars: []interface{}{field.RawExpr()},
+	}}}
 }
 
 func (field String) toSlice(values []string) []interface{} {
@@ -197,8 +258,8 @@ func (field Bytes) Regexp(value string) Expr {
 	return field.regexp(value)
 }
 
-// NotRegxp ...
-func (field Bytes) NotRegxp(value string) Expr {
+// NotRegexp ...
+func (field Bytes) NotRegexp(value string) Expr {
 	return Not(field.Regexp(value))
 }
 
@@ -225,6 +286,30 @@ func (field Bytes) FindInSet(targetList string) Expr {
 // FindInSetWith FIND_IN_SET(input_string, field_name)
 func (field Bytes) FindInSetWith(target string) Expr {
 	return expr{e: clause.Expr{SQL: "FIND_IN_SET(?,?)", Vars: []interface{}{target, field.RawExpr()}}}
+}
+
+// Lower converts a string to lower-case.
+func (field Bytes) Lower() String {
+	return String{expr{e: clause.Expr{SQL: "LOWER(?)", Vars: []interface{}{field.RawExpr()}}}}
+}
+
+// Upper converts a string to upper-case.
+func (field Bytes) Upper() String {
+	return String{expr{e: clause.Expr{SQL: "UPPER(?)", Vars: []interface{}{field.RawExpr()}}}}
+}
+
+// Field ...
+func (field Bytes) Field(values ...[]byte) Bytes {
+	return Bytes{field.field(values)}
+}
+
+// SubstringIndex SUBSTRING_INDEX
+// https://dev.mysql.com/doc/refman/8.0/en/functions.html#function_substring-index
+func (field Bytes) SubstringIndex(delim string, count int) Bytes {
+	return Bytes{expr{e: clause.Expr{
+		SQL:  fmt.Sprintf("SUBSTRING_INDEX(?,%q,%d)", delim, count),
+		Vars: []interface{}{field.RawExpr()},
+	}}}
 }
 
 func (field Bytes) toSlice(values [][]byte) []interface{} {

@@ -15,16 +15,75 @@ import (
 // ModelOpt field option
 type ModelOpt = model.Option
 
+// Field exported model.Field
+type Field = *model.Field
+
 var ns = schema.NamingStrategy{}
 
 var (
+	FieldModify = func(opt func(Field) Field) model.ModifyFieldOpt {
+		return func(f *model.Field) *model.Field {
+			return opt(f)
+		}
+	}
+
+	FieldFilter = func(opt func(Field) Field) model.FilterFieldOpt {
+		return func(f *model.Field) *model.Field {
+			return opt(f)
+		}
+	}
+
+	// WithDataTypesNullType configures the types of fields to use their datatypes nullable counterparts.
+	/**
+	 *
+	 * @param {boolean} all - If true, all basic types of fields will be replaced with their `datatypes.Null[T]` types.
+	 *                        If false, only fields that are allowed to be null will be replaced with `datatypes.Null[T]` types.
+	 *
+	 * Examples:
+	 *
+	 * When `all` is true:
+	 * - `int64` will be replaced with `datatypes.NullInt64`
+	 * - `string` will be replaced with `datatypes.NullString`
+	 *
+	 * When `all` is false:
+	 * - Only fields that can be null (e.g., `*string` or `*int`) will be replaced with `datatypes.Null[T]` types.
+	 *
+	 * Note:
+	 * Ensure that proper error handling is implemented when converting
+	 * fields to their `datatypes.Null[T]` types to avoid runtime issues.
+	 */
+	WithDataTypesNullType = func(all bool) model.ModifyFieldOpt {
+		return func(f *model.Field) *model.Field {
+			ft := f.Type
+			nullable := false
+			if strings.HasPrefix(ft, "*") {
+				nullable = true
+				ft = strings.TrimLeft(ft, "*")
+			}
+			if !all && !nullable {
+				return f
+			}
+			switch ft {
+			case "time.Time", "string", "int", "int8", "int16",
+				"int32", "int64", "uint", "uint8", "uint16", "uint32",
+				"uint64", "float64", "float32", "byte", "bool":
+				ft = fmt.Sprintf("datatypes.Null[%s]", ft)
+			default:
+				return f
+			}
+			f.CustomGenType = f.GenType()
+			f.Type = ft
+			return f
+		}
+	}
+
 	// FieldNew add new field (any type your want)
-	FieldNew = func(fieldName, fieldType, fieldTag string) model.CreateFieldOpt {
+	FieldNew = func(fieldName, fieldType string, fieldTag field.Tag) model.CreateFieldOpt {
 		return func(*model.Field) *model.Field {
 			return &model.Field{
-				Name:         fieldName,
-				Type:         fieldType,
-				OverwriteTag: fieldTag,
+				Name: fieldName,
+				Type: fieldType,
+				Tag:  fieldTag,
 			}
 		}
 	}
@@ -112,10 +171,10 @@ var (
 		}
 	}
 	// FieldTag specify GORM tag and JSON tag
-	FieldTag = func(columnName string, gormTag, jsonTag string) model.ModifyFieldOpt {
+	FieldTag = func(columnName string, tagFunc func(tag field.Tag) field.Tag) model.ModifyFieldOpt {
 		return func(m *model.Field) *model.Field {
 			if m.ColumnName == columnName {
-				m.GORMTag, m.JSONTag = gormTag, jsonTag
+				m.Tag = tagFunc(m.Tag)
 			}
 			return m
 		}
@@ -124,7 +183,7 @@ var (
 	FieldJSONTag = func(columnName string, jsonTag string) model.ModifyFieldOpt {
 		return func(m *model.Field) *model.Field {
 			if m.ColumnName == columnName {
-				m.JSONTag = jsonTag
+				m.Tag.Set(field.TagKeyJson, jsonTag)
 			}
 			return m
 		}
@@ -133,25 +192,38 @@ var (
 	FieldJSONTagWithNS = func(schemaName func(columnName string) (tagContent string)) model.ModifyFieldOpt {
 		return func(m *model.Field) *model.Field {
 			if schemaName != nil {
-				m.JSONTag = schemaName(m.ColumnName)
+				m.Tag.Set(field.TagKeyJson, schemaName(m.ColumnName))
+
 			}
 			return m
 		}
 	}
 	// FieldGORMTag specify GORM tag
-	FieldGORMTag = func(columnName string, gormTag string) model.ModifyFieldOpt {
+	FieldGORMTag = func(columnName string, gormTag func(tag field.GormTag) field.GormTag) model.ModifyFieldOpt {
 		return func(m *model.Field) *model.Field {
 			if m.ColumnName == columnName {
-				m.GORMTag = gormTag
+				m.GORMTag = gormTag(m.GORMTag)
+			}
+			return m
+		}
+	}
+	// FieldGORMTagReg specify GORM tag by RegExp
+	FieldGORMTagReg = func(columnNameReg string, gormTag func(tag field.GormTag) field.GormTag) model.ModifyFieldOpt {
+		reg := regexp.MustCompile(columnNameReg)
+		return func(m *model.Field) *model.Field {
+			if reg.MatchString(m.ColumnName) {
+				m.GORMTag = gormTag(m.GORMTag)
 			}
 			return m
 		}
 	}
 	// FieldNewTag add new tag
-	FieldNewTag = func(columnName string, newTag string) model.ModifyFieldOpt {
+	FieldNewTag = func(columnName string, newTag field.Tag) model.ModifyFieldOpt {
 		return func(m *model.Field) *model.Field {
 			if m.ColumnName == columnName {
-				m.NewTag += " " + newTag
+				for k, v := range newTag {
+					m.Tag.Set(k, v)
+				}
 			}
 			return m
 		}
@@ -162,7 +234,7 @@ var (
 			if schemaName == nil {
 				schemaName = func(name string) string { return name }
 			}
-			m.NewTag = fmt.Sprintf(`%s %s:"%s"`, m.NewTag, tagName, schemaName(m.ColumnName))
+			m.Tag.Set(tagName, schemaName(m.ColumnName))
 			return m
 		}
 	}
@@ -199,18 +271,13 @@ var (
 		if config == nil {
 			config = &field.RelateConfig{}
 		}
-		if config.JSONTag == "" {
-			config.JSONTag = ns.ColumnName("", fieldName)
-		}
+
 		return func(*model.Field) *model.Field {
 			return &model.Field{
-				Name:         fieldName,
-				Type:         config.RelateFieldPrefix(relationship) + table.StructInfo.Type,
-				JSONTag:      config.JSONTag,
-				GORMTag:      config.GORMTag,
-				NewTag:       config.NewTag,
-				OverwriteTag: config.OverwriteTag,
-
+				Name:    fieldName,
+				Type:    config.RelateFieldPrefix(relationship) + table.StructInfo.Type,
+				Tag:     config.GetTag(fieldName),
+				GORMTag: config.GORMTag,
 				Relation: field.NewRelationWithType(
 					relationship, fieldName, table.StructInfo.Package+"."+table.StructInfo.Type,
 					table.Relations()...),
@@ -228,19 +295,13 @@ var (
 		if config == nil {
 			config = &field.RelateConfig{}
 		}
-		if config.JSONTag == "" {
-			config.JSONTag = ns.ColumnName("", fieldName)
-		}
 
 		return func(*model.Field) *model.Field {
 			return &model.Field{
-				Name:         fieldName,
-				Type:         config.RelateFieldPrefix(relationship) + fieldType,
-				JSONTag:      config.JSONTag,
-				GORMTag:      config.GORMTag,
-				NewTag:       config.NewTag,
-				OverwriteTag: config.OverwriteTag,
-
+				Name:     fieldName,
+				Type:     config.RelateFieldPrefix(relationship) + fieldType,
+				GORMTag:  config.GORMTag,
+				Tag:      config.GetTag(fieldName),
 				Relation: field.NewRelationWithModel(relationship, fieldName, fieldType, relModel),
 			}
 		}

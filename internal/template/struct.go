@@ -3,6 +3,7 @@ package template
 const (
 	// TableQueryStruct table query struct
 	TableQueryStruct = createMethod + `
+	{{.QueryStructComment}}
 	type {{.QueryStructName}} struct {
 		{{.QueryStructName}}Do
 		` + fields + `
@@ -11,6 +12,7 @@ const (
 
 	// TableQueryStructWithContext table query struct with context
 	TableQueryStructWithContext = createMethod + `
+	{{.QueryStructComment}}
 	type {{.QueryStructName}} struct {
 		{{.QueryStructName}}Do {{.QueryStructName}}Do
 		` + fields + `
@@ -22,6 +24,8 @@ const (
 	func ({{.S}} {{.QueryStructName}}) TableName() string { return {{.S}}.{{.QueryStructName}}Do.TableName() } 
 
 	func ({{.S}} {{.QueryStructName}}) Alias() string { return {{.S}}.{{.QueryStructName}}Do.Alias() }
+
+	func ({{.S}} {{.QueryStructName}}) Columns(cols ...field.Expr) gen.Columns { return {{.S}}.{{.QueryStructName}}Do.Columns(cols...) }
 
 	` + getFieldMethod + fillFieldMapMethod + cloneMethod + replaceMethod + relationship + defineMethodStruct
 
@@ -103,13 +107,16 @@ func ({{.S}} *{{.QueryStructName}}) updateTableName(table string) *{{.QueryStruc
 
 	cloneMethod = `
 func ({{.S}} {{.QueryStructName}}) clone(db *gorm.DB) {{.QueryStructName}} {
-	{{.S}}.{{.QueryStructName}}Do.ReplaceConnPool(db.Statement.ConnPool)
+	{{.S}}.{{.QueryStructName}}Do.ReplaceConnPool(db.Statement.ConnPool){{range .Fields }}{{if .IsRelation}}
+  {{$.S}}.{{.Relation.Name}}.db = db.Session(&gorm.Session{Initialized: true})
+  {{$.S}}.{{.Relation.Name}}.db.Statement.ConnPool = db.Statement.ConnPool{{end}}{{end}}
 	return {{.S}}
 }
 `
 	replaceMethod = `
 func ({{.S}} {{.QueryStructName}}) replaceDB(db *gorm.DB) {{.QueryStructName}} {
-	{{.S}}.{{.QueryStructName}}Do.ReplaceDB(db)
+	{{.S}}.{{.QueryStructName}}Do.ReplaceDB(db){{range .Fields}}{{if .IsRelation}}
+  {{$.S}}.{{.Relation.Name}}.db = db.Session(&gorm.Session{}){{end}}{{end}}
 	return {{.S}}
 }
 `
@@ -197,6 +204,8 @@ type I{{.ModelStructName}}Do interface {
 	FirstOrCreate() (*{{.StructInfo.Package}}.{{.StructInfo.Type}}, error)
 	FindByPage(offset int, limit int) (result []*{{.StructInfo.Package}}.{{.StructInfo.Type}}, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) I{{.ModelStructName}}Do
 	UnderlyingDB() *gorm.DB
@@ -237,8 +246,18 @@ func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}) WithContext(ct
 	return &a
 }
 
+func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}) Session(session *gorm.Session) *{{$.QueryStructName}}{{$relationship}}{{$relation.Name}} {
+	a.db = a.db.Session(session)
+	return &a
+}
+
 func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}) Model(m *{{$.StructInfo.Package}}.{{$.StructInfo.Type}}) *{{$.QueryStructName}}{{$relationship}}{{$relation.Name}}Tx {
 	return &{{$.QueryStructName}}{{$relationship}}{{$relation.Name}}Tx{a.db.Model(m).Association(a.Name())}
+}
+
+func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}) Unscoped() *{{$.QueryStructName}}{{$relationship}}{{$relation.Name}} {
+	a.db = a.db.Unscoped()
+	return &a
 }
 
 `
@@ -279,6 +298,11 @@ func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}Tx) Clear() erro
 
 func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}Tx) Count() int64 {
 	return a.tx.Count()
+}
+
+func (a {{$.QueryStructName}}{{$relationship}}{{$relation.Name}}Tx) Unscoped() *{{$.QueryStructName}}{{$relationship}}{{$relation.Name}}Tx {
+	a.tx = a.tx.Unscoped()
+	return &a
 }
 `
 )

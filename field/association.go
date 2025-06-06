@@ -47,7 +47,9 @@ type RelationField interface {
 	// 	Select(u.CreditCards.Field("Bank")) equals to GORM: Select("CreditCards.Bank")
 	// 	Select(u.CreditCards.Field("Bank","Owner")) equals to GORM: Select("CreditCards.Bank.Owner")
 	Field(fields ...string) Expr
-
+	Join(table schema.Tabler, conds ...Expr) RelationField
+	LeftJoin(table schema.Tabler, conds ...Expr) RelationField
+	RightJoin(table schema.Tabler, conds ...Expr) RelationField
 	On(conds ...Expr) RelationField
 	Select(conds ...Expr) RelationField
 	Order(columns ...Expr) RelationField
@@ -62,6 +64,14 @@ type RelationField interface {
 	GetClauses() []clause.Expression
 	GetScopes() []relationScope
 	GetPage() (offset, limit int)
+	GetJoins() []RelationJoin
+}
+
+// RelationJoin represents a join operation for a relation
+type RelationJoin struct {
+	Table     schema.Tabler
+	Type      clause.JoinType
+	Condition []Expr
 }
 
 // Relation relation meta info
@@ -81,6 +91,7 @@ type Relation struct {
 	clauses       []clause.Expression
 	scopes        []relationScope
 	limit, offset int
+	joins         []RelationJoin
 }
 
 // Name relation field' name
@@ -177,6 +188,45 @@ func (r *Relation) GetScopes() []relationScope { return r.scopes } // nolint
 // GetPage get offset and limit
 func (r *Relation) GetPage() (offset, limit int) { return r.offset, r.limit }
 
+// Join adds an INNER JOIN clause to the relation
+func (r Relation) Join(table schema.Tabler, conds ...Expr) RelationField {
+	if len(conds) > 0 {
+		r.joins = append(r.joins, RelationJoin{
+			Table:     table,
+			Type:      clause.InnerJoin,
+			Condition: conds,
+		})
+	}
+	return &r
+}
+
+// LeftJoin adds a LEFT JOIN clause to the relation
+func (r Relation) LeftJoin(table schema.Tabler, conds ...Expr) RelationField {
+	if len(conds) > 0 {
+		r.joins = append(r.joins, RelationJoin{
+			Table:     table,
+			Type:      clause.LeftJoin,
+			Condition: conds,
+		})
+	}
+	return &r
+}
+
+// RightJoin adds a RIGHT JOIN clause to the relation
+func (r Relation) RightJoin(table schema.Tabler, conds ...Expr) RelationField {
+	if len(conds) > 0 {
+		r.joins = append(r.joins, RelationJoin{
+			Table:     table,
+			Type:      clause.RightJoin,
+			Condition: conds,
+		})
+	}
+	return &r
+}
+
+// GetJoins returns the joins for the relation
+func (r *Relation) GetJoins() []RelationJoin { return r.joins }
+
 // StructField return struct field code
 func (r *Relation) StructField() (fieldStr string) {
 	for _, relation := range r.childRelations {
@@ -219,9 +269,9 @@ type RelateConfig struct {
 	RelateSlicePointer bool
 
 	JSONTag      string
-	GORMTag      string
-	NewTag       string
-	OverwriteTag string
+	GORMTag      GormTag
+	Tag          Tag
+	OverwriteTag Tag
 }
 
 // RelateFieldPrefix return generated relation field's type
@@ -236,4 +286,20 @@ func (c *RelateConfig) RelateFieldPrefix(relationshipType RelationshipType) stri
 	default:
 		return defaultRelationshipPrefix[relationshipType]
 	}
+}
+func (c *RelateConfig) GetTag(fieldName string) Tag {
+	if c == nil {
+		return Tag{}
+	}
+	if c.OverwriteTag != nil {
+		return c.OverwriteTag
+	}
+	if c.Tag == nil {
+		c.Tag = Tag{}
+	}
+	if c.JSONTag == "" {
+		c.JSONTag = ns.ColumnName("", fieldName)
+	}
+	c.Tag.Set(TagKeyJson, c.JSONTag)
+	return c.Tag
 }
